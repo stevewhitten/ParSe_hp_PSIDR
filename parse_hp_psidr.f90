@@ -17,7 +17,7 @@
 ! Cite:
 !   Wilson et al., Protein Sci. 32, e4756 (2023)           ParSe v2
 !   Ibrahim et al., J. Biol. Chem. 299, 102801 (2023)      training sets
-!   Remo et al., under review                              high-pathogenicity scan
+!   Remo et al., citation to be updated upon publication   high-pathogenicity scan
 !
 ! Build:
 !   gfortran -O2 -o parse_hp_psidr parse_hp_psidr.f90
