@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ParSe high-pathogenicity PS-IDR</title>
+<style>
+  :root {
+    --ps: #4c78a8;
+    --id: #c44e52;
+    --fold: #222222;
+    --hp: #e6a817;
+    --bg: #f7f5f2;
+    --ink: #1d1b19;
+    --muted: #6b6560;
+    --card: #ffffff;
+    --line: #ddd6cc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+  }
+  header {
+    padding: 1.25rem 1.5rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+  }
+  header h1 { margin: 0 0 0.25rem; font-size: 1.25rem; font-weight: 650; }
+  header p { margin: 0; color: var(--muted); font-size: 0.92rem; max-width: 52rem; }
+  main { padding: 1.25rem 1.5rem 2.5rem; max-width: 1100px; }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
+  textarea {
+    width: 100%;
+    min-height: 7.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    padding: 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    resize: vertical;
+    background: #fff;
+  }
+  .row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.7rem 0 1rem; align-items: center; }
+  button {
+    background: var(--ink);
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    padding: 0.5rem 0.95rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  button.secondary { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  button:hover { opacity: 0.92; }
+  .err { color: #a32020; font-size: 0.9rem; min-height: 1.2rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 1rem 1.1rem 1.15rem;
+    margin: 0.9rem 0;
+  }
+  .card h2 { margin: 0 0 0.7rem; font-size: 1rem; }
+  .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted); margin: 0.35rem 0 0.6rem; }
+  .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 0.3rem; vertical-align: -1px; }
+  .meta { font-size: 0.9rem; color: var(--muted); margin-bottom: 0.6rem; }
+  .meta b { color: var(--ink); }
+  canvas { width: 100%; display: block; background: #fff; }
+  pre.labels {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    margin: 0.4rem 0 0;
+    color: #333;
+  }
+  table { border-collapse: collapse; font-size: 0.86rem; width: 100%; }
+  th, td { text-align: left; padding: 0.28rem 0.5rem; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ParSe high-pathogenicity PS-IDR</h1>
+  <p>
+    Browser port of <code>parse_hp_psidr.f90</code>. Paste one protein sequence (25–10,000 residues,
+    20 standard amino acids). High-pathogenicity PS-IDRs, when present, are marked on both plots 
+    and listed in the downloadable CSV file.
+  </p>
+</header>
+<main>
+  <label for="seq">Protein sequence</label>
+  <textarea id="seq" spellcheck="false" placeholder="Paste a single sequence. FASTA headers are ignored."></textarea>
+  <div class="row">
+    <button id="run">Analyze</button>
+    <button class="secondary" id="example">Load FUS example</button>
+    <button class="secondary" id="clear">Clear</button>
+  </div>
+  <div class="err" id="err"></div>
+  <div id="results" hidden>
+    <div class="card">
+      <h2>Summary</h2>
+      <div class="meta" id="summary"></div>
+      <div class="row" style="margin:0">
+        <button class="secondary" id="csvBtn" type="button">Download CSV</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Domain organization</h2>
+      <div class="legend">
+        <span><i class="swatch" style="background:#4c78a8"></i>PS-ID</span>
+        <span><i class="swatch" style="background:#c44e52"></i>conventional ID</span>
+        <span><i class="swatch" style="background:#222"></i>folded</span>
+        <span><i class="swatch" style="background:#e6a817"></i>high-pathogenicity PS-IDR</span>
+      </div>
+      <canvas id="domPlot" height="110"></canvas>
+    </div>
+    <div class="card">
+      <h2>Classifier distance</h2>
+      <div class="legend">
+        <span>Distance of each 25-residue window from the decision boundary used to label it. The gold bar marks high-pathogenicity PS-IDRs.</span>
+      </div>
+      <canvas id="cdPlot" height="260"></canvas>
+    </div>
+    <div class="card">
+      <h2>Domains</h2>
+      <div id="domTable"></div>
+    </div>
+    <div class="card">
+      <h2>High-pathogenicity PS-IDRs</h2>
+      <div id="hpTable"></div>
+    </div>
+    <div class="card">
+      <h2>Residue labels</h2>
+      <div class="meta">ParSe F / D / P, then pathogenic-site X / other ID Y / folded F</div>
+      <pre class="labels" id="labOut"></pre>
+    </div>
+  </div>
+</main>
+<script>
+(function () {
+  const MAXN = 10000, WIN = 25, PCT_CUT = 0.90;
+  const HYDR_CUT = 0.08280152, HYDR_SD2 = 0.01679414 * 2.0;
+  const PD_M = -0.244078945, PD_B = 0.7885823;
+  const HELIX_PS = 0.9327272, NU_PS = 0.5416;
+  const HELIX_ID = 1.022552, NU_ID = 0.5582901;
+  const XY_M = 20.0788, XY_B = -20.0254;
+  const AA = "ACDEFGHIKLMNPQRSTVWY";
+  const AA_INDEX = {};
+  for (let i = 0; i < 20; i++) AA_INDEX[AA[i]] = i;
+  const PPII = [0.37,0.25,0.30,0.42,0.17,0.13,0.20,0.39,0.56,0.24,0.36,0.27,1.00,0.53,0.38,0.24,0.32,0.39,0.25,0.25];
+  const HELIX_SC = [1.42,0.73,1.01,1.63,1.16,0.50,1.20,1.12,1.24,1.29,1.21,0.71,0.65,1.02,1.06,0.71,0.78,0.99,1.05,0.67];
+  const HYDR_SC = [0.0728,0.3557,-0.0552,-0.0295,0.4201,-0.0589,0.0874,0.3805,-0.0053,0.3819,0.1613,-0.0390,-0.0492,0.0126,0.0394,-0.0282,0.0239,0.2947,0.4114,0.3113];
+  const SHEET_SC = [0.90,1.24,0.47,0.62,1.23,0.56,1.12,1.54,0.74,1.26,1.09,0.62,0.42,1.18,1.02,0.87,1.30,1.53,1.75,1.68];
+  const HYDR2_SC = [1.42,0.00,0.00,-9.45,-2.85,2.39,-11.22,0.11,-9.60,0.52,-2.80,-9.67,0.00,-9.31,-18.60,-5.10,-5.15,0.81,-8.39,-7.74];
+
+  const FUS = "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQSTDTSGYGQSSYSSYGQSQNTGYGTQSTPQGYGSTGGYGSSQSSQSSYGQQSSYPGYGQQPAPSSTSGSYGSSSQSSSYGQPQSGSYSQQPSYGGQQQSYGQQQSYNPPQGYGQQNQYNS";
+
+  function windowProps(cnt, nres) {
+    let hydr = 0, helix = 0, sheet = 0, hydr2 = 0, fppii = 0;
+    const q = Math.abs((cnt[2] + cnt[3]) - (cnt[8] + cnt[14]));
+    for (let k = 0; k < 20; k++) {
+      const n = cnt[k];
+      hydr += n * HYDR_SC[k];
+      helix += n * HELIX_SC[k];
+      sheet += n * SHEET_SC[k];
+      hydr2 += n * HYDR2_SC[k];
+      fppii += n * PPII[k];
+    }
+    const rn = nres;
+    hydr /= rn; helix /= rn; sheet /= rn; hydr2 /= rn; fppii /= rn;
+    if (fppii === 1.0) fppii = 0.98;
+    const vexp = 0.503 - 0.11 * Math.log(1.0 - fppii);
+    const rh = 2.16 * Math.pow(4 * nres, vexp) + 0.26 * (4 * q) - 0.29 * Math.sqrt(4 * nres);
+    const nu = Math.log(rh / 2.16) / Math.log(4 * nres);
+    return { hydr, helix, nu, sheet, hydr2 };
+  }
+
+  function countSeg(seq, start, end) {
+    const cnt = new Array(20).fill(0);
+    for (let i = start; i < end; i++) cnt[AA_INDEX[seq[i]]]++;
+    return cnt;
+  }
+
+  function growRuns(lab, want) {
+    const npep = lab.length;
+    const runs = [];
+    let i = 1;
+    while (i + 19 <= npep) {
+      let count_p = 0, count_w = 0, region = 0, pstart = i, pend = i;
+      for (let jj = i; jj <= i + 19; jj++) {
+        count_w++;
+        if (lab[jj - 1] === want) count_p++;
+      }
+      let j = i + 20;
+      while (true) {
+        if (count_p / count_w < PCT_CUT) break;
+        region = 1;
+        pstart = i;
+        pend = j;
+        if (j >= npep) break;
+        j += 1;
+        count_w += 1;
+        if (lab[j - 1] === want) count_p += 1;
+      }
+      if (region === 1) {
+        runs.push([pstart, pend]);
+        i = j;
+      } else {
+        i += 1;
+      }
+    }
+    return runs;
+  }
+
+  function splitEmbedded(aRuns, bRuns) {
+    const a = aRuns.map(r => r.slice());
+    let restart = true;
+    while (restart) {
+      restart = false;
+      outer: for (let i = 0; i < a.length; i++) {
+        const a0 = a[i][0], a1 = a[i][1];
+        for (const [b0, b1] of bRuns) {
+          if (b0 > a0 && b1 < a1) {
+            const nterm = b0 - a0, cterm = a1 - b1;
+            if (nterm > 20 && cterm <= 20) a[i][1] = b0 - 1;
+            else if (nterm <= 20 && cterm > 20) a[i][0] = b1 + 1;
+            else if (nterm > 20 && cterm > 20) {
+              a[i][1] = b0 - 1;
+              a.push([b1 + 1, a1]);
+              restart = true;
+              break outer;
+            }
+          }
+        }
+      }
+    }
+    return a;
+  }
+
+  function buildOrder(p, d, f) {
+    return p.concat(d, f).map(r => r[0]).sort((a, b) => a - b);
+  }
+
+  function updateRun(runs, start, newStart, newEnd) {
+    for (let k = 0; k < runs.length; k++) {
+      if (runs[k][0] === start) {
+        if (newStart != null) runs[k][0] = newStart;
+        if (newEnd != null) runs[k][1] = newEnd;
+        return runs[k][0];
+      }
+    }
+    return start;
+  }
+
+  function trimAdjacent(p, d, f, order) {
+    const extra = Math.round((1.0 - PCT_CUT) * 20.0 / 2.0);
+    if (order.length <= 1) return order;
+    for (let i = 0; i < order.length - 1; i++) {
+      let cur = order[i], nxt = order[i + 1];
+      for (const runs of [p, d, f]) {
+        for (const r of runs.slice()) {
+          if (r[0] === cur && r[1] >= nxt) {
+            const newEnd = nxt + extra;
+            updateRun(runs, cur, null, newEnd);
+            for (const other of [p, d, f]) {
+              const ns = updateRun(other, nxt, newEnd + 1, null);
+              if (ns !== nxt) {
+                order[i + 1] = ns;
+                nxt = ns;
+              }
+            }
+          }
+        }
+      }
+    }
+    return order;
+  }
+
+  function classify(seq) {
+    const npep = seq.length;
+    const lab = new Array(npep).fill(" ");
+    const lab2 = new Array(npep).fill(" ");
+    const dist = new Array(npep).fill(0);
+
+    let m = -1.0 / PD_M;
+    let b = NU_ID - m * HELIX_ID;
+    let x = (b - PD_B) / (PD_M - m);
+    let y = m * x + b;
+    const idDist = Math.hypot(HELIX_ID - x, NU_ID - y);
+    b = NU_PS - m * HELIX_PS;
+    x = (b - PD_B) / (PD_M - m);
+    y = m * x + b;
+    const psDist = Math.hypot(HELIX_PS - x, NU_PS - y);
+
+    let pSum = 0;
+    for (let i = 0; i <= npep - WIN; i++) {
+      const mid = i + Math.floor(WIN / 2);
+      const pr = windowProps(countSeg(seq, i, i + WIN), WIN);
+      if (pr.hydr >= HYDR_CUT) {
+        lab[mid] = "F"; lab2[mid] = "F";
+        dist[mid] = (pr.hydr - HYDR_CUT) / HYDR_SD2;
+        continue;
+      }
+      lab2[mid] = (pr.hydr2 > (XY_M * pr.sheet + XY_B)) ? "X" : "Y";
+      m = -1.0 / PD_M;
+      b = pr.nu - m * pr.helix;
+      x = (b - PD_B) / (PD_M - m);
+      y = m * x + b;
+      const cd = Math.hypot(pr.helix - x, pr.nu - y);
+      if (((pr.nu - PD_B) / PD_M) <= pr.helix) {
+        lab[mid] = "D";
+        dist[mid] = cd / idDist;
+      } else {
+        lab[mid] = "P";
+        dist[mid] = cd / psDist;
+        pSum += dist[mid];
+      }
+    }
+    const half = Math.floor(WIN / 2);
+    for (let j = 0; j < half; j++) {
+      lab[j] = lab[half]; lab2[j] = lab2[half]; dist[j] = dist[half];
+    }
+    for (let j = npep - half; j < npep; j++) {
+      lab[j] = lab[npep - half - 1];
+      lab2[j] = lab2[npep - half - 1];
+      dist[j] = dist[npep - half - 1];
+    }
+    return { lab: lab.join(""), lab2: lab2.join(""), dist, pSum };
+  }
+
+  function analyze(seq) {
+    const npep = seq.length;
+    const { lab, lab2, dist, pSum } = classify(seq);
+    let p = growRuns(lab, "P");
+    let d = growRuns(lab, "D");
+    let f = growRuns(lab, "F");
+    const x = growRuns(lab2, "X");
+    p = splitEmbedded(p, d); p = splitEmbedded(p, f);
+    d = splitEmbedded(d, p); d = splitEmbedded(d, f);
+    f = splitEmbedded(f, d); f = splitEmbedded(f, p);
+    let order = buildOrder(p, d, f);
+    order = trimAdjacent(p, d, f, order);
+    const hp = [];
+    for (const [x0, x1] of x) {
+      const pr = windowProps(countSeg(seq, x0 - 1, x1), x1 - x0 + 1);
+      if (((pr.nu - PD_B) / PD_M) > pr.helix) hp.push([x0, x1]);
+    }
+    const domains = [];
+    const lookup = {};
+    p.forEach(r => lookup[r[0]] = { cls: "P", start: r[0], end: r[1] });
+    d.forEach(r => lookup[r[0]] = { cls: "D", start: r[0], end: r[1] });
+    f.forEach(r => lookup[r[0]] = { cls: "F", start: r[0], end: r[1] });
+    for (const s of order) if (lookup[s]) domains.push(lookup[s]);
+    return { seq, npep, lab, lab2, dist, pSum, domains, hp };
+  }
+
+  function cleanSeq(raw) {
+    return raw.replace(/^>.*$/gm, " ").toUpperCase().replace(/[^A-Z]/g, "");
+  }
+
+  const COL = { P: "#4c78a8", D: "#c44e52", F: "#222222" };
+
+  function setupCanvas(canvas, cssH) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || canvas.parentElement.clientWidth;
+    canvas.width = Math.max(320, w) * dpr;
+    canvas.height = cssH * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w: canvas.width / dpr, h: cssH };
+  }
+
+  function drawDomains(res) {
+    const canvas = document.getElementById("domPlot");
+    const { ctx, w, h } = setupCanvas(canvas, 110);
+    ctx.clearRect(0, 0, w, h);
+    const padL = 28, padR = 16, padT = 28, padB = 28;
+    const x0 = padL, x1 = w - padR, y = padT + 8, bh = 22;
+    const n = res.npep;
+    const X = i => x0 + (i - 1) * (x1 - x0) / Math.max(n - 1, 1);
+
+    for (const d of res.domains) {
+      ctx.fillStyle = COL[d.cls];
+      ctx.fillRect(X(d.start), y, Math.max(1, X(d.end) - X(d.start)), bh);
+    }
+    ctx.strokeStyle = "#e6a817";
+    ctx.lineWidth = 3;
+    for (const [a, b] of res.hp) {
+      ctx.beginPath();
+      ctx.moveTo(X(a), y - 8);
+      ctx.lineTo(X(b), y - 8);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(230,168,23,0.18)";
+      ctx.fillRect(X(a), y, Math.max(1, X(b) - X(a)), bh);
+    }
+    ctx.fillStyle = "#6b6560";
+    ctx.font = "11px Helvetica, Arial, sans-serif";
+    ctx.textAlign = "center";
+    const ticks = 5;
+    for (let t = 0; t <= ticks; t++) {
+      const r = 1 + Math.round(t * (n - 1) / ticks);
+      const x = X(r);
+      ctx.strokeStyle = "#ddd6cc";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, y + bh); ctx.lineTo(x, y + bh + 5); ctx.stroke();
+      ctx.fillText(String(r), x, y + bh + 18);
+    }
+    ctx.fillText("Residue number", (x0 + x1) / 2, h - 6);
+  }
+
+  function drawCD(res) {
+    const canvas = document.getElementById("cdPlot");
+    const { ctx, w, h } = setupCanvas(canvas, 260);
+    ctx.clearRect(0, 0, w, h);
+    const padL = 44, padR = 16, padT = 22, padB = 32;
+    const x0 = padL, x1 = w - padR, y0 = padT, y1 = h - padB;
+    const n = res.npep;
+    const ymax = Math.max(1, ...res.dist) * 1.12;
+    const X = i => x0 + (i - 1) * (x1 - x0) / Math.max(n - 1, 1);
+    const Y = v => y1 - (v / ymax) * (y1 - y0);
+
+    ctx.strokeStyle = "#eee8e0";
+    ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) {
+      const v = ymax * g / 4;
+      const y = Y(v);
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      ctx.fillStyle = "#6b6560";
+      ctx.font = "11px Helvetica, Arial, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(v.toFixed(1), x0 - 6, y + 3);
+    }
+
+    ctx.strokeStyle = "#e6a817";
+    ctx.lineWidth = 4;
+    for (const [a, b] of res.hp) {
+      ctx.beginPath();
+      ctx.moveTo(X(a), y0 + 4);
+      ctx.lineTo(X(b), y0 + 4);
+      ctx.stroke();
+    }
+
+    function strokeClass(cls, color) {
+      ctx.beginPath();
+      let pen = false;
+      for (let i = 1; i <= n; i++) {
+        if (res.lab[i - 1] !== cls) { pen = false; continue; }
+        const x = X(i), y = Y(res.dist[i - 1]);
+        if (!pen) { ctx.moveTo(x, y); pen = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      ctx.lineTo = ctx.lineTo;
+    }
+    function fillClass(cls, color) {
+      ctx.fillStyle = color;
+      let i = 1;
+      while (i <= n) {
+        if (res.lab[i - 1] !== cls) { i++; continue; }
+        const s = i;
+        while (i <= n && res.lab[i - 1] === cls) i++;
+        ctx.beginPath();
+        ctx.moveTo(X(s), Y(0));
+        for (let k = s; k < i; k++) ctx.lineTo(X(k), Y(res.dist[k - 1]));
+        ctx.lineTo(X(i - 1), Y(0));
+        ctx.closePath();
+        ctx.globalAlpha = 0.28;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    fillClass("F", "#222222");
+    fillClass("D", "#c44e52");
+    fillClass("P", "#4c78a8");
+    strokeClass("F", "#222222");
+    strokeClass("D", "#c44e52");
+    strokeClass("P", "#4c78a8");
+
+    ctx.fillStyle = "#6b6560";
+    ctx.font = "11px Helvetica, Arial, sans-serif";
+    ctx.textAlign = "center";
+    const ticks = 5;
+    for (let t = 0; t <= ticks; t++) {
+      const r = 1 + Math.round(t * (n - 1) / ticks);
+      ctx.fillText(String(r), X(r), y1 + 16);
+    }
+    ctx.fillText("Residue number", (x0 + x1) / 2, h - 4);
+    ctx.save();
+    ctx.translate(14, (y0 + y1) / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText("Classifier distance", 0, 0);
+    ctx.restore();
+  }
+
+  function tableDomains(res) {
+    if (!res.domains.length) return '<p class="empty">No domains ≥20 residues at the 90% cutoff.</p>';
+    const name = { P: "PS-ID (P)", D: "nonPS-ID (D)", F: "folded (F)" };
+    let html = "<table><thead><tr><th>class</th><th>first</th><th>last</th><th>length</th></tr></thead><tbody>";
+    for (const d of res.domains) {
+      html += `<tr><td>${name[d.cls]}</td><td>${d.start}</td><td>${d.end}</td><td>${d.end - d.start + 1}</td></tr>`;
+    }
+    return html + "</tbody></table>";
+  }
+
+  function tableHP(res) {
+    if (!res.hp.length) return '<p class="empty">No high-pathogenicity PS-IDRs found.</p>';
+    let html = "<table><thead><tr><th>index</th><th>first</th><th>last</th><th>length</th></tr></thead><tbody>";
+    res.hp.forEach((r, i) => {
+      html += `<tr><td>${i + 1}</td><td>${r[0]}</td><td>${r[1]}</td><td>${r[1] - r[0] + 1}</td></tr>`;
+    });
+    return html + "</tbody></table>";
+  }
+
+  let lastResult = null;
+
+  function hpMask(res) {
+    const m = new Array(res.npep).fill(0);
+    for (const [a, b] of res.hp) {
+      for (let i = a; i <= b; i++) m[i - 1] = 1;
+    }
+    return m;
+  }
+
+  function toCSV(res) {
+    const hp = hpMask(res);
+    const lines = ["residue,aa,parse_label,classifier_distance,high_pathogenicity_PS_IDR"];
+    for (let i = 0; i < res.npep; i++) {
+      lines.push([
+        i + 1,
+        res.seq[i],
+        res.lab[i],
+        res.dist[i].toFixed(3),
+        hp[i]
+      ].join(","));
+    }
+    return lines.join("\n") + "\n";
+  }
+
+  function downloadCSV() {
+    if (!lastResult) return;
+    const blob = new Blob([toCSV(lastResult)], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "parse_hp_psidr_residues.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function run() {
+    const err = document.getElementById("err");
+    err.textContent = "";
+    let seq = cleanSeq(document.getElementById("seq").value);
+    if (!seq) { err.textContent = "Paste a sequence."; return; }
+    if (seq.length < 25) { err.textContent = "Minimum length is 25."; return; }
+    if (seq.length > MAXN) { err.textContent = "Maximum length is 10000."; return; }
+    for (const c of seq) {
+      if (AA_INDEX[c] == null) {
+        err.textContent = "Sequence contains a nonstandard residue: " + c;
+        return;
+      }
+    }
+    const res = analyze(seq);
+    lastResult = res;
+    document.getElementById("results").hidden = false;
+    document.getElementById("summary").innerHTML =
+      `<b>length</b> ${res.npep}` +
+      ` &nbsp;·&nbsp; <b>PS potential</b> ${res.pSum.toFixed(3)}` +
+      ` &nbsp;·&nbsp; <b>high-pathogenicity PS-IDRs</b> ${res.hp.length}`;
+    document.getElementById("labOut").textContent =
+      "ParSe labels (F/D/P):\n" + res.lab +
+      "\n\npathogenic-site ID labels (X) vs other ID (Y) or folded (F):\n" + res.lab2;
+    document.getElementById("domTable").innerHTML = tableDomains(res);
+    document.getElementById("hpTable").innerHTML = tableHP(res);
+    drawDomains(res);
+    drawCD(res);
+  }
+
+  document.getElementById("run").addEventListener("click", run);
+  document.getElementById("csvBtn").addEventListener("click", downloadCSV);
+  document.getElementById("clear").addEventListener("click", () => {
+    document.getElementById("seq").value = "";
+    document.getElementById("results").hidden = true;
+    document.getElementById("err").textContent = "";
+    lastResult = null;
+  });
+  document.getElementById("example").addEventListener("click", () => {
+    document.getElementById("seq").value =
+      "MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQSTDTSGYGQSSYSSYGQSQNTGYGTQSTPQGYGSTGGYGSSQSSQSSYGQQSSYPGYGQQPAPSSTSGSYGSSSQSSSYGQPQSGSYSQQPSYGGQQQSYGQQQSYNPPQGYGQQNQYNSSSGGGGGGGGGGNYGQDQSSMSSGGGSGGGYGNQDQSGGGGSGGYGQQDRGGRGRGGSGGGGGGGGGGYNRSSGGYEPRGRGGGRGGRGGMGGSDRGGFNKFGGPRDQGSRHDSEQDNSDNNTIFVQGLGENVTIESVADYFKQIGIIKTNKKTGQPMINLYTDRETGKLKGEATVSFDDPPSAKAAIDWFDGKEFSGNPIKVSFATRRADFNRGGGNGRGGRGRGGPMGRGGYGGGGSGGGGRGGFPSGGGGGGGQQRAGDWKCPNPTCENMNFSWRNECNQCKAPKPDGPGGGPGGSHMGGNYGDDRRGGRGGYDRGGYRGRGGDRGGFRGGRGGGDRGGFRGGRGGDDRGGRRGGRGGYDRGGYRGRGGDRGGFRGGRGGGDRGGFRGGGRGGDRGGFRGGRGGDRGGFRGGGRGGDRGGYGGGNYNDFGNYNQQQSNYGPMKSG";
+    run();
+  });
+  window.addEventListener("resize", () => {
+    if (!document.getElementById("results").hidden) run();
+  });
+})();
+</script>
+</body>
+</html>
